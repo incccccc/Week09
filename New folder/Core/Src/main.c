@@ -39,35 +39,19 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-float32_t A_f32[16] ={
-		1,   2,  3,  4,
-		5,   6,  7,  8,
-		9,  10, 11, 12,
-		13, 14, 15, 16,
-};
-arm_matrix_instance_f32 A;
 
-float32_t B_f32[4] = {
-		1,
-		2,
-		3,
-		4,
-};
-arm_matrix_instance_f32 B;
-
-
-float32_t At_f32[16];
-arm_matrix_instance_f32 At;
-
-float32_t AtmA_f32[16];
-arm_matrix_instance_f32 AtmA;
-
-float32_t AaB_f32[16];
-arm_matrix_instance_f32 AaB;
-
+int32_t QEIReadRaw;
+float DegreeAngle;
+int32_t LastQEI;
+uint32_t Betweenround;
+uint16_t CW;
+int32_t CCW;
 volatile arm_status CalcSt;
 
 
@@ -81,6 +65,8 @@ float Vfeedback = 0;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 float PlantSimulation(float VIn);
 /* USER CODE END PFP */
@@ -119,20 +105,17 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_TIM2_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
+  HAL_TIM_Base_Start(&htim2);
+  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_1|TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
 
-
-  arm_mat_init_f32(&A, 4, 4,(float32_t*) &A_f32);
-  arm_mat_init_f32(&At, 4, 4,(float32_t*) &At_f32);
-  arm_mat_init_f32(&AtmA, 4, 4,(float32_t*) &AtmA_f32);
-  arm_mat_init_f32(&B, 4, 4,(float32_t*) &B_f32);
-  arm_mat_init_f32(&AaB, 4, 4,(float32_t*) &AaB_f32);
-
-
-
-  PID.Kp =0.1;
-  PID.Ki =0.00001;
-  PID.Kd =0.1;
+  PID.Kp =1;
+  PID.Ki =0;
+  PID.Kd =0;
   arm_pid_init_f32(&PID, 0);
   /* USER CODE END 2 */
 
@@ -143,25 +126,43 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  //static GPIO_PinState B1[2];
-	  //B1[0] = HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin);
-	  //if (B1[0] == 0 && B1[1] == 1)
-	  //{
-		//  CalcSt = arm_mat_trans_f32(&A, &At);
-		//  CalcSt = arm_mat_mult_f32(&At, &A , &AtmA);
-		  //wrong
-		 // CalcSt = arm_mat_add_f32(&A, &B , &AaB);
-	  //}
-	  //B1[1] = B1[0];
+	  QEIReadRaw = __HAL_TIM_GET_COUNTER(&htim2);
+	  if(LastQEI - QEIReadRaw <= -200000){
+		  QEIReadRaw = 0;
+	  }
+	  if(LastQEI - QEIReadRaw >= 200000){
+		  QEIReadRaw = 307199;
+	  }
 	  static uint32_t timestamp = 0;
 	  if(timestamp < HAL_GetTick())
 	  {
 		  timestamp = HAL_GetTick()+10;
-
+		  DegreeAngle = QEIReadRaw*(360.0/3072.0);
+		  Position = DegreeAngle;
 		  Vfeedback = arm_pid_f32(&PID, Setposition - Position);
-		  Position = PlantSimulation(Vfeedback);
+		  if(Vfeedback > 0){
+		  	  			CCW = 0;
+		  	  			CW = Vfeedback*(1000/3.3);
+		  	  			if(CW >= 1000) CW = 1000;
+		  	  			else if(CW <= 0) CW = 100;
+
+		  	  		}
+		  	  		else if(Vfeedback < 0){ //Want CCW
+		  	  			CW = 0;
+		  				CCW = -1*Vfeedback*(1000/3.3);
+		  				if(CCW >= 1000) CCW = 1000;
+		  				else if(CCW <= 0) CCW = 100;
+
+		  	  		}
+		  	  	  }
+
+
+	  	  	  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,CW);
+	  	  	  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,CCW);
+		  	  LastQEI = QEIReadRaw;
 	  }
-  }
+
+
   /* USER CODE END 3 */
 }
 
@@ -209,6 +210,134 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 83;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 999;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 500;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 307199;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
 }
 
 /**
