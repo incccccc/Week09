@@ -42,7 +42,31 @@
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+float32_t A_f32[16] ={
+		1,   2,  3,  4,
+		5,   6,  7,  8,
+		9,  10, 11, 12,
+		13, 14, 15, 16,
+};
+arm_matrix_instance_f32 A;
 
+float32_t B_f32[4] = {
+		1,
+		2,
+		3,
+		4,
+};
+arm_matrix_instance_f32 B;
+
+
+float32_t At_f32[16];
+arm_matrix_instance_f32 At;
+
+float32_t AtmA_f32[16];
+arm_matrix_instance_f32 AtmA;
+
+float32_t AaB_f32[16];
+arm_matrix_instance_f32 AaB;
 
 volatile arm_status CalcSt;
 
