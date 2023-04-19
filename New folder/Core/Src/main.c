@@ -113,7 +113,7 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
 
-  PID.Kp =1;
+  PID.Kp =1.1;
   PID.Ki =0;
   PID.Kd =0;
   arm_pid_init_f32(&PID, 0);
@@ -127,10 +127,10 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  QEIReadRaw = __HAL_TIM_GET_COUNTER(&htim2);
-	  if(LastQEI - QEIReadRaw <= -200000){
+	  if(LastQEI - QEIReadRaw <= -1000){
 		  QEIReadRaw = 0;
 	  }
-	  if(LastQEI - QEIReadRaw >= 200000){
+	  if(LastQEI - QEIReadRaw >= 1000){
 		  QEIReadRaw = 307199;
 	  }
 	  static uint32_t timestamp = 0;
